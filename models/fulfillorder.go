@@ -61,6 +61,21 @@ type Order struct {
 }
 
 func init() {
+
+	// Let's validate and spool the ENV VARS
+
+	if len(os.Getenv("MONGOHOST")) == 0 {
+		log.Print("The environment variable MONGOHOST has not been set")
+	} else {
+		log.Print("The environment variable MONGOHOST is " + os.Getenv("MONGOHOST"))
+	}
+
+	if len(os.Getenv("TEAMNAME")) == 0 {
+		log.Print("The environment variable TEAMNAME has not been set")
+	} else {
+		log.Print("The environment variable TEAMNAME is " + os.Getenv("TEAMNAME"))
+	}
+
 	OrderList = make(map[string]*Order)
 	//Now we check if this mongo or cosmos // V2
 	if strings.Contains(mongoURL, "?ssl=true") {
@@ -156,8 +171,6 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 	result := Order{}
 	log.Println("Looking for ", "{", "id:", order.ID, ",", "status:", "Open", "}")
 
-	//query = fmt.Println('"', order.ID, '"')
-	//log.Println(query, order.ID)
 	err := collection.Find(bson.M{"id": order.ID, "status": "Open"}).One(&result)
 
 	if err != nil {
@@ -180,7 +193,7 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 	//	Let's write only if we have a key
 	if insightskey != "" {
 		client := appinsights.NewTelemetryClient(insightskey)
-		client.TrackEvent("FulfillOrder:v5 - Team Name " + teamname + " db " + db)
+		client.TrackEvent("FulfillOrder:v7 - Team Name " + teamname + " db " + db)
 	}
 
 	// Let's place on the file system
