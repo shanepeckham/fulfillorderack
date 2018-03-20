@@ -174,7 +174,7 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 	err := collection.Find(bson.M{"id": order.ID, "status": "Open"}).One(&result)
 
 	if err != nil {
-		//		log.Fatal("Error finding record: ", err)
+		log.Fatal("Error finding record: ", err)
 		//		return
 		log.Println("Already Processed")
 	} else {
