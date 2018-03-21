@@ -1,6 +1,8 @@
-### FulfillOrder - TACK
+# FulfillOrder - TACK
 
 A containerised Go swagger API to fulfill orders and commit them to MongoDB
+
+## Environment Variables
 
 The following environment variables need to be passed to the container:
 
@@ -8,10 +10,12 @@ The following environment variables need to be passed to the container:
 ```
 ENV TEAMNAME=[YourTeamName]
 ```
+
 ### For Mongo
 ```
 ENV MONGOURL="mongodb://[mongoinstance].[namespace]"
 ```
+
 ### File mount
 ```
 /orders
