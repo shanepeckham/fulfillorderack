@@ -3,7 +3,7 @@ package controllers
 import (
 	"encoding/json"
 
-	"github.com/shanepeckham/hackfulfillorder/models"
+	"fulfillorderack/models"
 
 	"github.com/astaxie/beego"
 )
@@ -20,7 +20,6 @@ type OrderController struct {
 // @Failure 403 body is empty
 // @router / [post]
 func (this *OrderController) Post() {
-
 	var ob models.Order
 	json.Unmarshal(this.Ctx.Input.RequestBody, &ob)
 	orderID := models.ProcessOrderInMongoDB(ob)

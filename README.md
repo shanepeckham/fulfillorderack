@@ -10,7 +10,7 @@ ENV TEAMNAME=[YourTeamName]
 ```
 ### For Mongo
 ```
-ENV MONGOHOST="mongodb://[mongoinstance].[namespace]"
+ENV MONGOURL="mongodb://[mongoinstance].[namespace]"
 ```
 ### File mount
 ```
