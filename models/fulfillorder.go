@@ -142,7 +142,8 @@ func init() {
 	// http://godoc.org/labix.org/v2/mgo#Session.SetMode.
 	session.SetSafe(nil)
 
-	// get collection
+	// get collection. If database was not set, use the default "k8orders"
+	if database == "" { database = "k8orders"}
 	collection = session.DB(database).C("orders")
 
 }
