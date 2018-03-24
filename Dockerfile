@@ -1,26 +1,41 @@
-FROM golang:latest
-ENV GOPATH /go
-ENV PATH $GOPATH/bin:$PATH
+## Build stage
+FROM golang:1.9.4 as builder
+
 # Set the working directory to the app directory
-WORKDIR /go/src/github.com/shanepeckham/hackfulfillorder/
+WORKDIR /go/src/fulfillorderack
 
-# Download dep binary to bin folder in $GOPATH
-RUN mkdir -p /usr/local/bin \
-    && curl -fsSL -o /usr/local/bin/dep https://github.com/golang/dep/releases/download/v0.4.1/dep-linux-amd64 \
-    && chmod +x /usr/local/bin/dep
+# Install godeps
+RUN go get -u -v github.com/astaxie/beego
+RUN go get -u -v github.com/beego/bee
+RUN go get -d github.com/Microsoft/ApplicationInsights-Go/appinsights
+RUN go get -u -v gopkg.in/mgo.v2
 
-
-# Add source code. Ignoring local /vendor file (via .dockerignore) to ensure dep
-# correctly restores /vendor file
+# Copy the application files
 COPY . .
-# Restore dependancies with dep 
-RUN dep ensure -v
-# Build binary
-RUN go build .
 
-# ACK Logging
+# Build
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o fulfillorderack .
+
+## App stage
+FROM alpine:latest  
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /go/src/fulfillorderack .
+
+# Define environment variables
+# Application Insights
+ENV APPINSIGHTS_KEY=
+ENV CHALLENGEAPPINSIGHTS_KEY=23c6b1ec-ca92-4083-86b6-eba851af9032
+
+# Challenge Logging
 ENV TEAMNAME=
-# Mongo/Cosmos
-ENV MONGOHOST=
 
-CMD ["./hackfulfillorder"]
+# Mongo/Cosmos
+ENV MONGOURL=
+
+# Expose the application on port 8080
+EXPOSE 8080
+
+# Set the entry point of the container to the bee command that runs the
+# application and watches for changes
+CMD ["./fulfillorderack", "run"]

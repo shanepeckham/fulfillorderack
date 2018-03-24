@@ -1,7 +1,7 @@
 package main
 
 import (
-	_ "github.com/shanepeckham/hackfulfillorder/routers"
+	_ "fulfillorderack/routers"
 
 	"github.com/astaxie/beego"
 )
