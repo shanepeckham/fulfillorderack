@@ -16,38 +16,27 @@ import (
 )
 
 var (
-	OrderList map[string]*Order
-)
-
-var (
 	database string
 	password string
 	status   string
 )
 
-var username string
-var address []string
-var isAzure bool
-var session *mgo.Session
-var asession *mgo.Session
-var serr error
-var collection *mgo.Collection
-
-var hosts string
 var db string
 
 var insightskey = "23c6b1ec-ca92-4083-86b6-eba851af9032"
-
-var rabbitMQURL = os.Getenv("RABBITMQHOST")
-var partitionKey = strings.TrimSpace(os.Getenv("PARTITIONKEY"))
 var mongoURL = os.Getenv("MONGOHOST")
 var teamname = os.Getenv("TEAMNAME")
-var eventPolicyName = os.Getenv("EVENTPOLICYNAME")
-var eventPolicyKey = os.Getenv("EVENTPOLICYKEY")
+var isCosmosDb = strings.Contains(mongoURL, "documents.azure.com")
 
-var eventURL = os.Getenv("EVENTURL") + "/messages"
+// MongoDB database and collection names
+var mongoDatabaseName = "k8orders"
+var mongoCollectionName = "orders"
+var mongoDBSessionCopy *mgo.Session
+var mongoDBSession *mgo.Session
+var mongoDBCollection *mgo.Collection
+var mongoDBSessionError error
 
-var eventURLWithPartition = os.Getenv("EVENTURL") + "/partitions/" + partitionKey + "/messages"
+var challengeTelemetryClient appinsights.TelemetryClient
 
 // Order represents the order json
 type Order struct {
@@ -62,12 +51,15 @@ type Order struct {
 
 func init() {
 
+	// Init App Insights
+	challengeTelemetryClient = appinsights.NewTelemetryClient(insightskey)
+
 	// Let's validate and spool the ENV VARS
 
-	if len(os.Getenv("MONGOHOST")) == 0 {
-		log.Print("The environment variable MONGOHOST has not been set")
+	if len(os.Getenv("MONGOURL")) == 0 {
+		log.Print("The environment variable MONGOURL has not been set")
 	} else {
-		log.Print("The environment variable MONGOHOST is " + os.Getenv("MONGOHOST"))
+		log.Print("The environment variable MONGOURL is " + os.Getenv("MONGOURL"))
 	}
 
 	if len(os.Getenv("TEAMNAME")) == 0 {
@@ -76,113 +68,104 @@ func init() {
 		log.Print("The environment variable TEAMNAME is " + os.Getenv("TEAMNAME"))
 	}
 
-	OrderList = make(map[string]*Order)
-	//Now we check if this mongo or cosmos // V2
-	if strings.Contains(mongoURL, "?ssl=true") {
-		isAzure = true
-
-		url, err := url.Parse(mongoURL)
-		if err != nil {
-			log.Fatal("Problem parsing url: ", err)
-		}
-
-		log.Print("user ", url.User)
-		// DialInfo holds options for establishing a session with a MongoDB cluster.
-		st := fmt.Sprintf("%s", url.User)
-		co := strings.Index(st, ":")
-
-		database = st[:co]
-		password = st[co+1:]
-		log.Print("db ", database, " pwd ", password)
-	}
-	// V2s
-
-	log.Print("MongoURL: " + mongoURL)
-
-	// DialInfo holds options for establishing a session with a MongoDB cluster.
-	dialInfo := &mgo.DialInfo{
-		Addrs:    []string{fmt.Sprintf("%s.documents.azure.com:10255", database)}, // Get HOST + PORT
-		Timeout:  60 * time.Second,
-		Database: database, // It can be anything
-		Username: database, // Username
-		Password: password, // PASSWORD
-		DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
-			return tls.Dial("tcp", addr.String(), &tls.Config{})
-		},
+	url, err := url.Parse(mongoURL)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Problem parsing Mongo URL %s: ", url), err)
 	}
 
-	//V2
-	// Create a session which maintains a pool of socket connections
-	// to our MongoDB.
-	if isAzure == true {
-		asession, serr = mgo.DialWithInfo(dialInfo)
-		if serr != nil {
-			log.Fatal("Can't connect to CosmosDB, go error", serr)
-			status = "Can't connect to CosmosDB, go error %v\n"
-			os.Exit(1)
-		}
-		session = asession.Copy()
-		log.Println("Writing to CosmosDB")
+	if isCosmosDb {
+		log.Println("Using CosmosDB")
 		db = "CosmosDB"
+
 	} else {
-		asession, serr = mgo.Dial(mongoURL)
-		if serr != nil {
-			log.Fatal("Can't connect to mongo, go error", serr)
-			status = "Can't connect to mongo, go error %v\n"
-			os.Exit(1)
-		}
-		session = asession.Copy()
-		log.Println("Writing to MongoDB")
+		log.Println("Using MongoDB")
 		db = "MongoDB"
+	}
+
+	// Parse the connection string to extract components because the MongoDB driver is peculiar
+	var dialInfo *mgo.DialInfo
+	mongoUsername := ""
+	mongoPassword := ""
+	if url.User != nil {
+		mongoUsername = url.User.Username()
+		mongoPassword, _ = url.User.Password()
+	}
+	mongoHost := url.Host
+	mongoDatabase := mongoDatabaseName // can be anything
+	mongoSSL := strings.Contains(url.RawQuery, "ssl=true")
+
+	log.Printf("\tUsername: %s", mongoUsername)
+	log.Printf("\tPassword: %s", mongoPassword)
+	log.Printf("\tHost: %s", mongoHost)
+	log.Printf("\tDatabase: %s", mongoDatabase)
+	log.Printf("\tSSL: %t", mongoSSL)
+
+	if mongoSSL {
+		dialInfo = &mgo.DialInfo{
+			Addrs:    []string{mongoHost},
+			Timeout:  60 * time.Second,
+			Database: mongoDatabase, // It can be anything
+			Username: mongoUsername, // Username
+			Password: mongoPassword, // Password
+			DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
+				return tls.Dial("tcp", addr.String(), &tls.Config{})
+			},
+		}
+	} else {
+		dialInfo = &mgo.DialInfo{
+			Addrs:    []string{mongoHost},
+			Timeout:  60 * time.Second,
+			Database: mongoDatabase, // It can be anything
+			Username: mongoUsername, // Username
+			Password: mongoPassword, // Password
+		}
+	}
+
+	success := false
+	mongoDBSession, mongoDBSessionError = mgo.DialWithInfo(dialInfo)
+	if mongoDBSessionError != nil {
+		log.Fatal(fmt.Sprintf("Can't connect to mongo at [%s], go error: ", mongoURL), mongoDBSessionError)
+	} else {
+		success = true
+	}
+
+	if !success {
+		os.Exit(1)
 	}
 
 	// SetSafe changes the session safety mode.
 	// If the safe parameter is nil, the session is put in unsafe mode, and writes become fire-and-forget,
 	// without error checking. The unsafe mode is faster since operations won't hold on waiting for a confirmation.
 	// http://godoc.org/labix.org/v2/mgo#Session.SetMode.
-	session.SetSafe(nil)
+	mongoDBSession.SetSafe(nil)
 
-	// get collection
-	collection = session.DB(database).C("orders")
-
-}
-
-func AddOrder(order Order) (orderId string) {
-
-	return orderId
 }
 
 func ProcessOrderInMongoDB(order Order) (orderId string) {
+	log.Println("ProcessOrderInMongoDB: " + order.ID)
 
-	session = asession.Copy()
+	mongoDBSessionCopy = mongoDBSession.Copy()
+	defer mongoDBSessionCopy.Close()
 
-	log.Println("Team " + teamname)
-
-	if partitionKey == "" {
-		partitionKey = "0"
-	}
-
-	database = "k8orders"
-	password = "" //V2
-
-	defer session.Close()
+	// Get collection
+	log.Println("Getting collection: " + mongoCollectionName + " in database: " + mongoDatabaseName)
+	mongoDBCollection = mongoDBSessionCopy.DB(mongoDatabaseName).C(mongoCollectionName)
+	defer mongoDBSessionCopy.Close()
 
 	// Get Document from collection
 	result := Order{}
-	log.Println("Looking for ", "{", "id:", order.ID, ",", "status:", "Open", "}")
+	log.Println("Looking for ", "{", "orderid:", order.ID, ",", "status:", "Open", "}")
 
-	err := collection.Find(bson.M{"id": order.ID, "status": "Open"}).One(&result)
+	err := mongoDBCollection.Find(bson.M{"id": order.ID, "status": "Open"}).One(&result)
 
 	if err != nil {
-		//		log.Fatal("Error finding record: ", err)
-		//		return
-		log.Println("Already Processed")
+		log.Println("Not found (already processed) or error: ", err)
 	} else {
 
 		log.Println("set status: Processed")
 
 		change := bson.M{"$set": bson.M{"status": "Processed"}}
-		err = collection.Update(result, change)
+		err = mongoDBCollection.Update(result, change)
 		if err != nil {
 			log.Fatal("Error updating record: ", err)
 			return
@@ -190,17 +173,18 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 
 	}
 
-	//	Let's write only if we have a key
-	if insightskey != "" {
-		client := appinsights.NewTelemetryClient(insightskey)
-		client.TrackEvent("FulfillOrder:v7 - Team Name " + teamname + " db " + db)
-	}
+	// Track the event for the challenge purposes
+	eventTelemetry := appinsights.NewEventTelemetry("FulfillOrder: - Team Name " + teamname + " db " + db)
+	eventTelemetry.Properties["team"] = teamname
+	eventTelemetry.Properties["challenge"] = "fulfillorder"
+	eventTelemetry.Properties["type"] = db
+	challengeTelemetryClient.Track(eventTelemetry)
 
 	// Let's place on the file system
 	f, err := os.Create("/orders/" + order.ID + ".json")
 	check(err)
 
-	fmt.Fprintf(f, "{", "id:", order.ID, ",", "status:", "Processed", "}")
+	fmt.Fprintf(f, "{", "orderid:", order.ID, ",", "status:", "Processed", "}")
 
 	// Issue a `Sync` to flush writes to stable storage.
 	f.Sync()
@@ -211,5 +195,12 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 func check(e error) {
 	if e != nil {
 		log.Println("order volume not mounted")
+	} else {
+		// Track the event for the challenge purposes
+		eventTelemetry := appinsights.NewEventTelemetry("ProcessOrder: - Team Name " + teamname + " db " + db)
+		eventTelemetry.Properties["team"] = teamname
+		eventTelemetry.Properties["challenge"] = "processorder"
+		eventTelemetry.Properties["type"] = db
+		challengeTelemetryClient.Track(eventTelemetry)
 	}
 }
