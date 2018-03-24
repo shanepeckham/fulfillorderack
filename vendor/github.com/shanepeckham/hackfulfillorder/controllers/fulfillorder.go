@@ -3,9 +3,8 @@ package controllers
 import (
 	"encoding/json"
 
-	"github.com/shanepeckham/hackfulfillorder/models"
-
 	"github.com/astaxie/beego"
+	"github.com/shanepeckham/hackfulfillorder/models"
 )
 
 // Operations about order
