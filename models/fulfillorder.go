@@ -89,9 +89,14 @@ func init() {
 	if url.User != nil {
 		mongoUsername = url.User.Username()
 		mongoPassword, _ = url.User.Password()
+		st := fmt.Sprintf("%s", url.User)
+		co := strings.Index(st, ":")
+		mongoDatabaseName = st[:co]
 	}
 	mongoHost := url.Host
-	mongoDatabase := mongoDatabaseName // can be anything
+
+	mongoDatabase := mongoDatabaseName
+	//mongoDatabase := mongoDatabaseName // can be anything
 	mongoSSL := strings.Contains(url.RawQuery, "ssl=true")
 
 	log.Printf("\tUsername: %s", mongoUsername)
