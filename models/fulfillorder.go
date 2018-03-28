@@ -29,7 +29,7 @@ var teamname = os.Getenv("TEAMNAME")
 var isCosmosDb = strings.Contains(mongoURL, "documents.azure.com")
 
 // MongoDB database and collection names
-var mongoDatabaseName = "k8orders"
+var mongoDatabaseName = "orders"
 var mongoCollectionName = "orders"
 var mongoDBSessionCopy *mgo.Session
 var mongoDBSession *mgo.Session
