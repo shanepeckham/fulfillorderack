@@ -1,3 +1,5 @@
+[![CircleCI](https://circleci.com/gh/shanepeckham/eventhublistenerack.svg?style=svg)](https://circleci.com/gh/shanepeckham/eventhublistenerack)
+
 ### FulfillOrder - TACK
 
 A containerised Go swagger API to fulfill orders and commit them to MongoDB
